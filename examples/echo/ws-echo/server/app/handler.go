@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	errTooManySessions = errors.New("Too many echo sessions!")
+	errTooManySessions = errors.New("too many echo sessions")
 	msgHandler         = &MessageHandler{}
 	echoMsgHandler     = newEchoMessageHandler()
 )
@@ -110,7 +110,7 @@ func (h *EchoMessageHandler) OnClose(session getty.Session) {
 	h.rwlock.Unlock()
 }
 
-func (h *EchoMessageHandler) OnMessage(session getty.Session, pkg interface{}) {
+func (h *EchoMessageHandler) OnMessage(session getty.Session, pkg any) {
 	p, ok := pkg.(*EchoPackage)
 	if !ok {
 		log.Errorf("illegal packge{%#v}, %s", pkg, string(pkg.([]byte)))

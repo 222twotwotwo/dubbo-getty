@@ -24,15 +24,15 @@ import (
 
 // Logger for user who want to customize logger of getty
 type Logger interface {
-	Info(args ...interface{})
-	Warn(args ...interface{})
-	Error(args ...interface{})
-	Debug(args ...interface{})
+	Info(args ...any)
+	Warn(args ...any)
+	Error(args ...any)
+	Debug(args ...any)
 
-	Infof(fmt string, args ...interface{})
-	Warnf(fmt string, args ...interface{})
-	Errorf(fmt string, args ...interface{})
-	Debugf(fmt string, args ...interface{})
+	Infof(fmt string, args ...any)
+	Warnf(fmt string, args ...any)
+	Errorf(fmt string, args ...any)
+	Debugf(fmt string, args ...any)
 }
 
 type LoggerLevel int8

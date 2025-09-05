@@ -49,13 +49,13 @@ type Reader interface {
 	// The return value is (nil, pkgLen, nil) as case 3.
 	// The return value is (pkg, pkgLen, nil) as case 4.
 	// The handleTcpPackage may invoke func Read many times as case 5.
-	Read(Session, []byte) (interface{}, int, error)
+	Read(Session, []byte) (any, int, error)
 }
 
 // Writer is used to marshal pkg and write to session
 type Writer interface {
 	// Write if @Session is udpGettySession, the second parameter is UDPContext.
-	Write(Session, interface{}) ([]byte, error)
+	Write(Session, any) ([]byte, error)
 }
 
 // ReadWriter interface use for handle application packages
@@ -90,7 +90,7 @@ type EventListener interface {
 	// !!!In short, ur OnMessage callback func should return asap.
 	//
 	// If this is a udp event listener, the second parameter type is UDPContext.
-	OnMessage(Session, interface{})
+	OnMessage(Session, any)
 }
 
 // EndPoint represents the identity of the client/server

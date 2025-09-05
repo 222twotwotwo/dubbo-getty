@@ -28,7 +28,7 @@ import (
 )
 
 import (
-	"github.com/dubbogo/gost/sync"
+	gxsync "github.com/dubbogo/gost/sync"
 )
 
 import (
@@ -37,13 +37,12 @@ import (
 
 var (
 	concurrency = flag.Int("c", 1, "concurrency")
-	total       = flag.Int("n", 1, "total requests for all clients")
 	ip          = flag.String("ip", "127.0.0.1:8090", "server IP")
 	connections = flag.Int("conn", 1, "number of tcp connections")
 
-	taskPoolMode = flag.Bool("taskPool", false, "task pool mode")
-	taskPoolSize = flag.Int("task_pool_size", 2000, "task poll size")
-	pprofPort    = flag.Int("pprof_port", 65431, "pprof http port")
+	_ = flag.Bool("taskPool", false, "task pool mode")
+	_ = flag.Int("task_pool_size", 2000, "task poll size")
+	_ = flag.Int("pprof_port", 65431, "pprof http port")
 )
 
 var taskPool gxsync.GenericTaskPool
@@ -146,7 +145,7 @@ func (h *MessageHandler) OnClose(session getty.Session) {
 	log.Printf("hhf OnClose session{%s} is closing......", session.Stat())
 }
 
-func (h *MessageHandler) OnMessage(session getty.Session, pkg interface{}) {
+func (h *MessageHandler) OnMessage(session getty.Session, pkg any) {
 	log.Printf("OnMessage....")
 	s, ok := pkg.(string)
 	if !ok {
@@ -162,7 +161,7 @@ func (h *MessageHandler) OnCron(session getty.Session) {
 
 type PackageHandler struct{}
 
-func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, error) {
+func (h *PackageHandler) Read(ss getty.Session, data []byte) (any, int, error) {
 	dataLen := len(data)
 	if dataLen < 4 {
 		return nil, 0, nil
@@ -182,7 +181,7 @@ func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, 
 	return s, pos, nil
 }
 
-func (h *PackageHandler) Write(ss getty.Session, p interface{}) ([]byte, error) {
+func (h *PackageHandler) Write(ss getty.Session, p any) ([]byte, error) {
 	pkg, ok := p.(string)
 	if !ok {
 		log.Printf("illegal pkg:%+v", p)

@@ -166,7 +166,7 @@ func (c *client) dialTCP() Session {
 			conn, err = net.DialTimeout("tcp", c.addr, connectTimeout)
 		}
 		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			conn.Close()
+			_ = conn.Close()
 			err = errSelfConnect
 		}
 		if err == nil {
@@ -200,7 +200,7 @@ func (c *client) dialUDP() Session {
 		}
 		conn, err = net.DialUDP("udp", localAddr, peerAddr)
 		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			conn.Close()
+			_ = conn.Close()
 			err = errSelfConnect
 		}
 		if err != nil {
@@ -214,7 +214,7 @@ func (c *client) dialUDP() Session {
 			log.Warnf("failed to set write deadline: %+v", err)
 		}
 		if length, err = conn.Write(connectPingPackage[:]); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			log.Warnf("conn.Write(%s) = {length:%d, err:%+v}", string(connectPingPackage), length, perrors.WithStack(err))
 			<-gxtime.After(connectInterval)
 			continue
@@ -228,7 +228,7 @@ func (c *client) dialUDP() Session {
 		}
 		if err != nil {
 			log.Infof("conn{%#v}.Read() = {length:%d, err:%+v}", conn, length, perrors.WithStack(err))
-			conn.Close()
+			_ = conn.Close()
 			<-gxtime.After(connectInterval)
 			continue
 		}
@@ -252,7 +252,7 @@ func (c *client) dialWS() Session {
 		conn, _, err = dialer.Dial(c.addr, nil)
 		log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
 		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			conn.Close()
+			_ = conn.Close()
 			err = errSelfConnect
 		}
 		if err == nil {
@@ -329,7 +329,7 @@ func (c *client) dialWSS() Session {
 		}
 		conn, _, err = dialer.Dial(c.addr, nil)
 		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			conn.Close()
+			_ = conn.Close()
 			err = errSelfConnect
 		}
 		if err == nil {
@@ -409,7 +409,7 @@ func (c *client) connect() {
 		}
 		// don't distinguish between tcp connection and websocket connection. Because
 		// gorilla/websocket/conn.go:(Conn)Close also invoke net.Conn.Close()
-		ss.Conn().Close()
+		_ = ss.Conn().Close()
 	}
 }
 
@@ -465,7 +465,7 @@ func (c *client) stop() {
 	case <-c.done:
 		return
 	default:
-		c.Once.Do(func() {
+		c.Do(func() {
 			close(c.done)
 			c.Lock()
 			for s := range c.ssMap {

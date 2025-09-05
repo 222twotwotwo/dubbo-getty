@@ -25,7 +25,6 @@ import (
 )
 
 import (
-	// "github.com/AlexStocks/goext/log"
 	config "github.com/koding/multiconfig"
 )
 
@@ -104,43 +103,36 @@ func initConf() {
 	confFile = os.Getenv(APP_CONF_FILE)
 	if confFile == "" {
 		panic("application configure file name is nil")
-		return // I know it is of no usage. Just Err Protection.
+		// I know it is of no usage. Just Err Protection.
 	}
 	if path.Ext(confFile) != ".toml" {
 		panic(fmt.Sprintf("application configure file name{%v} suffix must be .toml", confFile))
-		return
 	}
 	conf = new(Config)
 	config.MustLoadWithPath(confFile, conf)
 	conf.heartbeatPeriod, err = time.ParseDuration(conf.HeartbeatPeriod)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(HeartbeatPeroid{%#v}) = error{%v}", conf.HeartbeatPeriod, err))
-		return
 	}
 	conf.sessionTimeout, err = time.ParseDuration(conf.SessionTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(SessionTimeout{%#v}) = error{%v}", conf.SessionTimeout, err))
-		return
 	}
 	conf.failFastTimeout, err = time.ParseDuration(conf.FailFastTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(FailFastTimeout{%#v}) = error{%v}", conf.FailFastTimeout, err))
-		return
 	}
 	conf.GettySessionParam.tcpReadTimeout, err = time.ParseDuration(conf.GettySessionParam.TcpReadTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(TcpReadTimeout{%#v}) = error{%v}", conf.GettySessionParam.TcpReadTimeout, err))
-		return
 	}
 	conf.GettySessionParam.tcpWriteTimeout, err = time.ParseDuration(conf.GettySessionParam.TcpWriteTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(TcpWriteTimeout{%#v}) = error{%v}", conf.GettySessionParam.TcpWriteTimeout, err))
-		return
 	}
 	conf.GettySessionParam.waitTimeout, err = time.ParseDuration(conf.GettySessionParam.WaitTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(WaitTimeout{%#v}) = error{%v}", conf.GettySessionParam.WaitTimeout, err))
-		return
 	}
 	// gxlog.CInfo("config{%#v}\n", conf)
 
@@ -148,13 +140,10 @@ func initConf() {
 	confFile = os.Getenv(APP_LOG_CONF_FILE)
 	if confFile == "" {
 		panic("log configure file name is nil")
-		return
 	}
 	if path.Ext(confFile) != ".xml" {
 		panic(fmt.Sprintf("log configure file name{%v} suffix must be .xml", confFile))
-		return
 	}
 	log.Infof("config{%#v}", conf)
 
-	return
 }

@@ -45,7 +45,7 @@ func (h *MessageHandler) OnClose(session getty.Session) {
 	log.Infof("OnClose session{%s} is closing......", session.Stat())
 }
 
-func (h *MessageHandler) OnMessage(session getty.Session, pkg interface{}) {
+func (h *MessageHandler) OnMessage(session getty.Session, pkg any) {
 	s, ok := pkg.(string)
 	if !ok {
 		log.Infof("illegal package{%#v}", pkg)

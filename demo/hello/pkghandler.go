@@ -28,7 +28,7 @@ import (
 
 type PackageHandler struct{}
 
-func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, error) {
+func (h *PackageHandler) Read(ss getty.Session, data []byte) (any, int, error) {
 	dataLen := len(data)
 	if dataLen < 4 {
 		return nil, 0, nil
@@ -48,7 +48,7 @@ func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, 
 	return s, pos, nil
 }
 
-func (h *PackageHandler) Write(ss getty.Session, p interface{}) ([]byte, error) {
+func (h *PackageHandler) Write(ss getty.Session, p any) ([]byte, error) {
 	pkg, ok := p.(string)
 	if !ok {
 		log.Infof("illegal pkg:%+v", p)

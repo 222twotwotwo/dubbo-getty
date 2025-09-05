@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	errSessionNotExist = errors.New("session not exist!")
+	errSessionNotExist = errors.New("session not exist")
 	echoMsgHandler     = newEchoMessageHandler()
 )
 
@@ -62,7 +62,7 @@ func (h *EchoMessageHandler) OnClose(session getty.Session) {
 	client.removeSession(session)
 }
 
-func (h *EchoMessageHandler) OnMessage(session getty.Session, pkg interface{}) {
+func (h *EchoMessageHandler) OnMessage(session getty.Session, pkg any) {
 	p, ok := pkg.(*EchoPackage)
 	if !ok {
 		log.Errorf("illegal packge{%#v}", pkg)

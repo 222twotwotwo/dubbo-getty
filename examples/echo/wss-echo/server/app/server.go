@@ -147,7 +147,7 @@ func initServer() {
 		addr = gxnet.HostAddress2(conf.Host, port)
 
 		if conf.CertFile != "" && conf.KeyFile != "" {
-			server = getty.NewWSServer(
+			server = getty.NewWSSServer(
 				getty.WithLocalAddress(addr),
 				getty.WithWebsocketServerPath(pathList[idx]),
 				getty.WithWebsocketServerCert(conf.CertFile),
@@ -156,7 +156,7 @@ func initServer() {
 			)
 			log.Debugf("server bind addr{wss://%s/%s} ok!", addr, pathList[idx])
 		} else {
-			server = getty.NewWSServer(
+			server = getty.NewWSSServer(
 				getty.WithLocalAddress(addr),
 				getty.WithWebsocketServerPath(pathList[idx]),
 			)

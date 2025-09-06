@@ -29,8 +29,11 @@ import (
 
 import (
 	"github.com/golang/snappy"
+
 	"github.com/gorilla/websocket"
+
 	perrors "github.com/pkg/errors"
+
 	uatomic "go.uber.org/atomic"
 )
 
@@ -62,7 +65,7 @@ type Connection interface {
 	// SetWriteTimeout sets deadline for the future write calls.
 	SetWriteTimeout(time.Duration)
 	// Send pkg data to peer
-	Send(interface{}) (int, error)
+	Send(any) (int, error)
 	// CloseConn close connection
 	CloseConn(int)
 	// SetSession sets related session
@@ -76,8 +79,6 @@ type Connection interface {
 type gettyConn struct {
 	id            uint32
 	compress      CompressType
-	padding1      uint8
-	padding2      uint16
 	readBytes     uatomic.Uint32   // read bytes
 	writeBytes    uatomic.Uint32   // write bytes
 	readPkgNum    uatomic.Uint32   // send pkg number
@@ -120,11 +121,7 @@ func (c *gettyConn) GetActive() time.Time {
 	return launchTime.Add(time.Duration(c.active.Load()))
 }
 
-func (c *gettyConn) send(interface{}) (int, error) {
-	return 0, nil
-}
-
-func (c *gettyConn) close(int) {}
+// removed unused methods
 
 func (c gettyConn) ReadTimeout() time.Duration {
 	return c.rTimeout.Load()
@@ -284,7 +281,7 @@ func (t *gettyTCPConn) recv(p []byte) (int, error) {
 }
 
 // tcp connection write
-func (t *gettyTCPConn) Send(pkg interface{}) (int, error) {
+func (t *gettyTCPConn) Send(pkg any) (int, error) {
 	var (
 		err         error
 		currentTime time.Time
@@ -357,7 +354,7 @@ func (t *gettyTCPConn) CloseConn(waitSec int) {
 // ///////////////////////////////////////
 
 type UDPContext struct {
-	Pkg      interface{}
+	Pkg      any
 	PeerAddr *net.UDPAddr
 }
 
@@ -432,7 +429,7 @@ func (u *gettyUDPConn) recv(p []byte) (int, *net.UDPAddr, error) {
 }
 
 // write udp packet, @ctx should be of type UDPContext
-func (u *gettyUDPConn) Send(udpCtx interface{}) (int, error) {
+func (u *gettyUDPConn) Send(udpCtx any) (int, error) {
 	var (
 		err         error
 		currentTime time.Time
@@ -478,7 +475,7 @@ func (u *gettyUDPConn) Send(udpCtx interface{}) (int, error) {
 // close udp connection
 func (u *gettyUDPConn) CloseConn(_ int) {
 	if u.conn != nil {
-		u.conn.Close()
+		_ = u.conn.Close()
 		u.conn = nil
 	}
 }
@@ -531,7 +528,7 @@ func (w *gettyWSConn) SetCompressType(c CompressType) {
 	switch c {
 	case CompressNone, CompressZip, CompressBestSpeed, CompressBestCompression, CompressHuffman:
 		w.conn.EnableWriteCompression(true)
-		w.conn.SetCompressionLevel(int(c))
+		_ = w.conn.SetCompressionLevel(int(c))
 
 	default:
 		panic(fmt.Sprintf("illegal comparess type %d", c))
@@ -598,7 +595,7 @@ func (w *gettyWSConn) updateWriteDeadline() error {
 }
 
 // websocket connection write
-func (w *gettyWSConn) Send(pkg interface{}) (int, error) {
+func (w *gettyWSConn) Send(pkg any) (int, error) {
 	var (
 		err error
 		ok  bool
@@ -609,7 +606,9 @@ func (w *gettyWSConn) Send(pkg interface{}) (int, error) {
 		return 0, perrors.Errorf("illegal @pkg{%#v} type", pkg)
 	}
 
-	w.updateWriteDeadline()
+	if err := w.updateWriteDeadline(); err != nil {
+		return 0, err
+	}
 	if err = w.threadSafeWriteMessage(websocket.BinaryMessage, p); err == nil {
 		w.writeBytes.Add((uint32)(len(p)))
 		w.writePkgNum.Add(1)
@@ -618,26 +617,30 @@ func (w *gettyWSConn) Send(pkg interface{}) (int, error) {
 }
 
 func (w *gettyWSConn) writePing() error {
-	w.updateWriteDeadline()
+	if err := w.updateWriteDeadline(); err != nil {
+		return err
+	}
 	return perrors.WithStack(w.threadSafeWriteMessage(websocket.PingMessage, []byte{}))
 }
 
 func (w *gettyWSConn) writePong(message []byte) error {
-	w.updateWriteDeadline()
+	if err := w.updateWriteDeadline(); err != nil {
+		return err
+	}
 	return perrors.WithStack(w.threadSafeWriteMessage(websocket.PongMessage, message))
 }
 
 // close websocket connection
 func (w *gettyWSConn) CloseConn(waitSec int) {
-	w.updateWriteDeadline()
-	w.threadSafeWriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye-bye!!!"))
+	_ = w.updateWriteDeadline()
+	_ = w.threadSafeWriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye-bye!!!"))
 	conn := w.conn.UnderlyingConn()
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
-		tcpConn.SetLinger(waitSec)
+		_ = tcpConn.SetLinger(waitSec)
 	} else if wsConn, ok := conn.(*tls.Conn); ok {
-		wsConn.CloseWrite()
+		_ = wsConn.CloseWrite()
 	}
-	w.conn.Close()
+	_ = w.conn.Close()
 }
 
 // uses a mutex to ensure that only one thread can send a message at a time, preventing race conditions.

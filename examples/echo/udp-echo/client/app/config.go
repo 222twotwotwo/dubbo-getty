@@ -96,11 +96,10 @@ func initConf() {
 	confFile = os.Getenv(APP_CONF_FILE)
 	if confFile == "" {
 		panic("application configure file name is nil")
-		return // I know it is of no usage. Just Err Protection.
+		// I know it is of no usage. Just Err Protection.
 	}
 	if path.Ext(confFile) != ".toml" {
 		panic(fmt.Sprintf("application configure file name{%v} suffix must be .toml", confFile))
-		return
 	}
 	conf = new(Config)
 	config.MustLoadWithPath(confFile, conf)
@@ -108,32 +107,26 @@ func initConf() {
 	conf.heartbeatPeriod, err = time.ParseDuration(conf.HeartbeatPeriod)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(HeartbeatPeroid{%#v}) = error{%v}", conf.HeartbeatPeriod, err))
-		return
 	}
 	conf.sessionTimeout, err = time.ParseDuration(conf.SessionTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(SessionTimeout{%#v}) = error{%v}", conf.SessionTimeout, err))
-		return
 	}
 	conf.failFastTimeout, err = time.ParseDuration(conf.FailFastTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(FailFastTimeout{%#v}) = error{%v}", conf.FailFastTimeout, err))
-		return
 	}
 	conf.GettySessionParam.udpReadTimeout, err = time.ParseDuration(conf.GettySessionParam.UdpReadTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(UdpReadTimeout{%#v}) = error{%v}", conf.GettySessionParam.UdpReadTimeout, err))
-		return
 	}
 	conf.GettySessionParam.udpWriteTimeout, err = time.ParseDuration(conf.GettySessionParam.UdpWriteTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(UdpWriteTimeout{%#v}) = error{%v}", conf.GettySessionParam.UdpWriteTimeout, err))
-		return
 	}
 	conf.GettySessionParam.waitTimeout, err = time.ParseDuration(conf.GettySessionParam.WaitTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(WaitTimeout{%#v}) = error{%v}", conf.GettySessionParam.WaitTimeout, err))
-		return
 	}
 	// gxlog.Info("config{%#v}\n", conf)
 
@@ -141,13 +134,10 @@ func initConf() {
 	confFile = os.Getenv(APP_LOG_CONF_FILE)
 	if confFile == "" {
 		panic("log configure file name is nil")
-		return
 	}
 	if path.Ext(confFile) != ".xml" {
 		panic(fmt.Sprintf("log configure file name{%v} suffix must be .xml", confFile))
-		return
 	}
 	log.Infof("config{%#v}", conf)
 
-	return
 }

@@ -54,7 +54,9 @@ func main() {
 	flag.Parse()
 
 	go func() {
-		http.ListenAndServe(fmt.Sprintf(":%d", *pprofPort), nil)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", *pprofPort), nil); err != nil && err != http.ErrServerClosed {
+			log.Printf("pprof server failed to listen and serve: %v", err)
+		}
 	}()
 
 	options := []getty.ServerOption{getty.WithLocalAddress(":8090")}
@@ -132,7 +134,7 @@ func (h *MessageHandler) OnClose(session getty.Session) {
 	log.Printf("OnClose session{%s} is closing......", session.Stat())
 }
 
-func (h *MessageHandler) OnMessage(session getty.Session, pkg interface{}) {
+func (h *MessageHandler) OnMessage(session getty.Session, pkg any) {
 	log.Printf("OnMessage....")
 	//s, ok := pkg.(string)
 	//if !ok {
@@ -148,7 +150,7 @@ func (h *MessageHandler) OnCron(session getty.Session) {
 
 type PackageHandler struct{}
 
-func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, error) {
+func (h *PackageHandler) Read(ss getty.Session, data []byte) (any, int, error) {
 	dataLen := len(data)
 	if dataLen < 4 {
 		return nil, 0, nil
@@ -168,7 +170,7 @@ func (h *PackageHandler) Read(ss getty.Session, data []byte) (interface{}, int, 
 	return s, pos, nil
 }
 
-func (h *PackageHandler) Write(ss getty.Session, p interface{}) ([]byte, error) {
+func (h *PackageHandler) Write(ss getty.Session, p any) ([]byte, error) {
 	pkg, ok := p.(string)
 	if !ok {
 		log.Printf("illegal pkg:%+v", p)

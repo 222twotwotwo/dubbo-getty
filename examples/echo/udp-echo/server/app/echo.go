@@ -25,10 +25,11 @@ import (
 	"unsafe"
 )
 
-////////////////////////////////////////////
-//  echo command
-////////////////////////////////////////////
-
+// //////////////////////////////////////////
+//
+//	echo command
+//
+// //////////////////////////////////////////
 type echoCommand uint32
 
 const (
@@ -59,8 +60,8 @@ const (
 
 var (
 	ErrNotEnoughStream = errors.New("packet stream is not enough")
-	ErrTooLargePackage = errors.New("package length is exceed the echo package's legal maximum length.")
-	ErrIllegalMagic    = errors.New("package magic is not right.")
+	ErrTooLargePackage = errors.New("package length is exceed the echo package's legal maximum length")
+	ErrIllegalMagic    = errors.New("package magic is not right")
 )
 
 var echoPkgHeaderLen int

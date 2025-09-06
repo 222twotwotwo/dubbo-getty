@@ -18,7 +18,6 @@
 package main
 
 import (
-	// "flag"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,9 +30,12 @@ import (
 )
 
 import (
+	gxnet "github.com/dubbogo/gost/net"
+	gxtime "github.com/dubbogo/gost/time"
+)
+
+import (
 	getty "github.com/apache/dubbo-getty"
-	"github.com/dubbogo/gost/net"
-	"github.com/dubbogo/gost/time"
 )
 
 const (
@@ -68,9 +70,7 @@ func main() {
 }
 
 func initProfiling() {
-	var addr string
-
-	addr = gxnet.HostAddress(conf.LocalHost, conf.ProfilePort)
+	addr := gxnet.HostAddress(conf.LocalHost, conf.ProfilePort)
 	log.Infof("App Profiling startup on address{%v}", addr+pprofPath)
 	go func() {
 		log.Info(http.ListenAndServe(addr, nil))
@@ -111,8 +111,8 @@ func newSession(session getty.Session) error {
 		panic(fmt.Sprintf("%s, session.conn{%#v} is not udp connection\n", session.Stat(), session.Conn()))
 	}
 
-	udpConn.SetReadBuffer(conf.GettySessionParam.UdpRBufSize)
-	udpConn.SetWriteBuffer(conf.GettySessionParam.UdpWBufSize)
+	_ = udpConn.SetReadBuffer(conf.GettySessionParam.UdpRBufSize)
+	_ = udpConn.SetWriteBuffer(conf.GettySessionParam.UdpWBufSize)
 
 	session.SetName(sessionName)
 	session.SetMaxMsgLen(conf.GettySessionParam.MaxMsgLen)
@@ -150,13 +150,13 @@ func initSignal() {
 	// signal.Notify的ch信道是阻塞的(signal.Notify不会阻塞发送信号), 需要设置缓冲
 	signals := make(chan os.Signal, 1)
 	// It is not possible to block SIGKILL or syscall.SIGSTOP
-	signal.Notify(signals, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(signals, os.Interrupt, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	for {
 		sig := <-signals
 		log.Info("get signal %s", sig.String())
 		switch sig {
 		case syscall.SIGHUP:
-		// reload()
+			// reload()
 		default:
 			go time.AfterFunc(conf.failFastTimeout, func() {
 				// log.Warn("app exit now by force...")
@@ -202,28 +202,19 @@ func echo(client *EchoClient) {
 	}
 }
 
-func testEchoClient(client *EchoClient) {
+func test() {
 	var (
 		cost    int64
 		counter gxtime.CountWatch
 	)
-
-	for {
-		if client.isAvailable() {
-			break
-		}
+	for !connectedClient.isAvailable() || !unconnectedClient.isAvailable() {
 		time.Sleep(3e9)
 	}
-
 	counter.Start()
 	for i := 0; i < conf.EchoTimes; i++ {
-		echo(client)
+		echo(&unconnectedClient)
+		echo(&connectedClient)
 	}
 	cost = counter.Count()
 	log.Infof("after loop %d times, echo cost %d ms", conf.EchoTimes, cost/1e6)
-}
-
-func test() {
-	testEchoClient(&unconnectedClient)
-	testEchoClient(&connectedClient)
 }

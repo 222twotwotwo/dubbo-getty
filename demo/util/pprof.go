@@ -25,6 +25,6 @@ import (
 
 func Profiling(port int) {
 	go func() {
-		http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+		_ = http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 	}()
 }

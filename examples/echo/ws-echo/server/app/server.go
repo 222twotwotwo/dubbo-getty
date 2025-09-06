@@ -18,22 +18,23 @@
 package main
 
 import (
-	// "flag"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	// "strings"
-	"crypto/tls"
 	"syscall"
 	"time"
 )
 
 import (
+	gxnet "github.com/dubbogo/gost/net"
+)
+
+import (
 	getty "github.com/apache/dubbo-getty"
-	"github.com/dubbogo/gost/net"
 )
 
 const (
@@ -68,10 +69,7 @@ func main() {
 }
 
 func initProfiling() {
-	var addr string
-
-	// addr = *host + ":" + "10000"
-	addr = gxnet.HostAddress(conf.Host, conf.ProfilePort)
+	addr := gxnet.HostAddress(conf.Host, conf.ProfilePort)
 	log.Infof("App Profiling startup on address{%v}", addr+pprofPath)
 	go func() {
 		log.Info(http.ListenAndServe(addr, nil))
@@ -98,10 +96,10 @@ func newSession(session getty.Session) error {
 	//	}
 
 	if flag2 {
-		tcpConn.SetNoDelay(conf.GettySessionParam.TcpNoDelay)
-		tcpConn.SetKeepAlive(conf.GettySessionParam.TcpKeepAlive)
-		tcpConn.SetReadBuffer(conf.GettySessionParam.TcpRBufSize)
-		tcpConn.SetWriteBuffer(conf.GettySessionParam.TcpWBufSize)
+		_ = tcpConn.SetNoDelay(conf.GettySessionParam.TcpNoDelay)
+		_ = tcpConn.SetKeepAlive(conf.GettySessionParam.TcpKeepAlive)
+		_ = tcpConn.SetReadBuffer(conf.GettySessionParam.TcpRBufSize)
+		_ = tcpConn.SetWriteBuffer(conf.GettySessionParam.TcpWBufSize)
 	}
 
 	session.SetName(conf.GettySessionParam.SessionName)
@@ -169,13 +167,13 @@ func initSignal() {
 	// signal.Notify的ch信道是阻塞的(signal.Notify不会阻塞发送信号), 需要设置缓冲
 	signals := make(chan os.Signal, 1)
 	// It is not possible to block SIGKILL or syscall.SIGSTOP
-	signal.Notify(signals, os.Interrupt, os.Kill, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(signals, os.Interrupt, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	for {
 		sig := <-signals
 		log.Infof("get signal %s", sig.String())
 		switch sig {
 		case syscall.SIGHUP:
-		// reload()
+			// reload()
 		default:
 			go time.AfterFunc(conf.failFastTimeout, func() {
 				// log.Warn("app exit now by force...")

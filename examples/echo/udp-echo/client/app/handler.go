@@ -26,7 +26,7 @@ import (
 	getty "github.com/apache/dubbo-getty"
 )
 
-var errSessionNotExist = errors.New("session not exist!")
+var errSessionNotExist = errors.New("session not exist")
 
 ////////////////////////////////////////////
 // EchoMessageHandler
@@ -61,7 +61,7 @@ func (h *EchoMessageHandler) OnClose(session getty.Session) {
 	h.client.removeSession(session)
 }
 
-func (h *EchoMessageHandler) OnMessage(session getty.Session, udpCtx interface{}) {
+func (h *EchoMessageHandler) OnMessage(session getty.Session, udpCtx any) {
 	ctx, ok := udpCtx.(getty.UDPContext)
 	if !ok {
 		log.Errorf("illegal UDPContext{%#v}", udpCtx)

@@ -143,7 +143,7 @@ func (s *server) stop() {
 	case <-s.done:
 		return
 	default:
-		s.Once.Do(func() {
+		s.Do(func() {
 			close(s.done)
 			s.lock.Lock()
 			if s.server != nil {
@@ -159,11 +159,11 @@ func (s *server) stop() {
 			s.lock.Unlock()
 			if s.streamListener != nil {
 				// let the server exit asap when got error from RunEventLoop.
-				s.streamListener.Close()
+				_ = s.streamListener.Close()
 				s.streamListener = nil
 			}
 			if s.pktListener != nil {
-				s.pktListener.Close()
+				_ = s.pktListener.Close()
 				s.pktListener = nil
 			}
 		})
@@ -270,7 +270,7 @@ func (s *server) accept(newSession NewSessionCallback) (Session, error) {
 	ss := newTCPSession(conn, s)
 	err = newSession(ss)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, perrors.WithStack(err)
 	}
 
@@ -333,7 +333,7 @@ func (s *server) runUDPEventLoop(newSession NewSessionCallback) {
 		conn = s.pktListener.(*net.UDPConn)
 		ss = newUDPSession(conn, s)
 		if err = newSession(ss); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			panic(err.Error())
 		}
 		ss.(*session).run()
@@ -363,7 +363,7 @@ func newWSHandler(server *server, newSession NewSessionCallback) *wsHandler {
 func (s *wsHandler) serveWSRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		// w.WriteHeader(http.StatusMethodNotAllowed)
-		http.Error(w, "Method not allowed", 405)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -386,7 +386,7 @@ func (s *wsHandler) serveWSRequest(w http.ResponseWriter, r *http.Request) {
 	ss := newWSSession(conn, s.server)
 	err = s.newSession(ss)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		log.Warnf("server{%s}.newSession(ss{%#v}) = err {%s}", s.server.addr, ss, err)
 		return
 	}

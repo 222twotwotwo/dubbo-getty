@@ -19,7 +19,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"time"
@@ -102,72 +101,57 @@ func initConf() {
 	confFile = os.Getenv(APP_CONF_FILE)
 	if confFile == "" {
 		panic("application configure file name is nil")
-		return // I know it is of no usage. Just Err Protection.
 	}
 	if path.Ext(confFile) != ".yml" {
 		panic(fmt.Sprintf("application configure file name{%v} suffix must be .yml", confFile))
-		return
 	}
 
 	conf = &Config{}
-	confFileStream, err := ioutil.ReadFile(confFile)
+	confFileStream, err := os.ReadFile(confFile)
 	if err != nil {
 		panic(fmt.Sprintf("ioutil.ReadFile(file:%s) = error:%s", confFile, err))
-		return
 	}
 	err = yaml.Unmarshal(confFileStream, conf)
 	if err != nil {
 		panic(fmt.Sprintf("yaml.Unmarshal() = error:%s", err))
-		return
 	}
 
 	conf.heartbeatPeriod, err = time.ParseDuration(conf.HeartbeatPeriod)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(HeartbeatPeriod{%#v}) = error{%v}", conf.HeartbeatPeriod, err))
-		return
 	}
 	conf.sessionTimeout, err = time.ParseDuration(conf.SessionTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(SessionTimeout{%#v}) = error{%v}", conf.SessionTimeout, err))
-		return
 	}
 	conf.failFastTimeout, err = time.ParseDuration(conf.FailFastTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(FailFastTimeout{%#v}) = error{%v}", conf.FailFastTimeout, err))
-		return
 	}
 	conf.GettySessionParam.keepAlivePeriod, err = time.ParseDuration(conf.GettySessionParam.KeepAlivePeriod)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(KeepAlivePeriod{%#v}) = error{%v}", conf.GettySessionParam.KeepAlivePeriod, err))
-		return
 	}
 	conf.GettySessionParam.tcpReadTimeout, err = time.ParseDuration(conf.GettySessionParam.TcpReadTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(TcpReadTimeout{%#v}) = error{%v}", conf.GettySessionParam.TcpReadTimeout, err))
-		return
 	}
 	conf.GettySessionParam.tcpWriteTimeout, err = time.ParseDuration(conf.GettySessionParam.TcpWriteTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(TcpWriteTimeout{%#v}) = error{%v}", conf.GettySessionParam.TcpWriteTimeout, err))
-		return
 	}
 	conf.GettySessionParam.waitTimeout, err = time.ParseDuration(conf.GettySessionParam.WaitTimeout)
 	if err != nil {
 		panic(fmt.Sprintf("time.ParseDuration(WaitTimeout{%#v}) = error{%v}", conf.GettySessionParam.WaitTimeout, err))
-		return
 	}
 
 	// log
 	confFile = os.Getenv(APP_LOG_CONF_FILE)
 	if confFile == "" {
 		panic("log configure file name is nil")
-		return
 	}
 	if path.Ext(confFile) != ".xml" {
 		panic(fmt.Sprintf("log configure file name{%v} suffix must be .xml", confFile))
-		return
 	}
 	log.Infof("config{%#v}", conf)
-
-	return
 }

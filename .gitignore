@@ -23,3 +23,5 @@ vendor/
 
 # vscode
 .vscode/
+
+coverage.txt

@@ -33,9 +33,7 @@ var (
 	log   = getty.GetLogger()
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
+// removed deprecated rand.Seed
 
 ////////////////////////////////////////////////////////////////////
 // echo client
@@ -48,11 +46,7 @@ type EchoClient struct {
 }
 
 func (c *EchoClient) isAvailable() bool {
-	if c.selectSession() == nil {
-		return false
-	}
-
-	return true
+	return c.selectSession() != nil
 }
 
 func (c *EchoClient) close() {

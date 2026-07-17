@@ -36,7 +36,7 @@ test: clean
 
 fmt: install-imports-formatter
 	# replace interface{} with any
-	go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -any -fix -test ./...
+	go run golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@v0.38.0 -any -fix -test ./...
 	go fmt ./... && GOROOT=$(shell go env GOROOT) imports-formatter
 
 # Clean test generate files

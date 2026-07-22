@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -420,9 +421,27 @@ func (s *server) runWSEventLoop(newSession NewSessionCallback) {
 		s.lock.Unlock()
 		err = server.Serve(s.streamListener)
 		if err != nil {
-			log.Errorf("http.server.Serve(addr{%s}) = err:%+v", s.addr, perrors.WithStack(err))
+			if isHTTPServeCloseError(err) {
+				s.logHTTPServeClose(err)
+			} else {
+				s.logHTTPServeError(err)
+			}
 		}
 	}()
+}
+
+func (s *server) logHTTPServeClose(err error) {
+	log.Infof("http.server.Serve(addr{%s}) closed: %v", s.addr, err)
+}
+
+func isHTTPServeCloseError(err error) bool {
+	return errors.Is(err, http.ErrServerClosed) ||
+		errors.Is(err, net.ErrClosed) ||
+		strings.Contains(err.Error(), "use of closed network connection")
+}
+
+func (s *server) logHTTPServeError(err error) {
+	log.Errorf("http.server.Serve(addr{%s}) = err:%+v", s.addr, perrors.WithStack(err))
 }
 
 // serve websocket client request
@@ -480,7 +499,11 @@ func (s *server) runWSSEventLoop(newSession NewSessionCallback) {
 		s.lock.Unlock()
 		err = server.Serve(tls.NewListener(s.streamListener, config))
 		if err != nil {
-			log.Errorf("http.server.Serve(addr{%s}) = err:%+v", s.addr, perrors.WithStack(err))
+			if isHTTPServeCloseError(err) {
+				s.logHTTPServeClose(err)
+				return
+			}
+			s.logHTTPServeError(err)
 			panic(err)
 		}
 	}()

@@ -183,3 +183,50 @@ func TestServer(t *testing.T) {
 	addr = "127.0.0.9999"
 	testTCPTlsServer(t, addr)
 }
+
+func TestWSSServerCloseDoesNotPanic(t *testing.T) {
+	certFile := filepath.Join(t.TempDir(), "server.crt")
+	keyFile := filepath.Join(t.TempDir(), "server.key")
+	assert.NoError(t, DownloadFile(certFile, WssServerCRT))
+	assert.NoError(t, DownloadFile(keyFile, WssServerKEY))
+
+	srv := NewWSSServer(
+		WithLocalAddress("127.0.0.1:0"),
+		WithWebsocketServerPath("/hello"),
+		WithWebsocketServerCert(certFile),
+		WithWebsocketServerPrivateKey(keyFile),
+	)
+	defer srv.Close()
+
+	var serverMsgHandler MessageHandler
+	srv.RunEventLoop(func(session Session) error {
+		return newSessionCallback(session, &serverMsgHandler)
+	})
+
+	waitUntilHTTPServerReady(t, srv.(*server))
+	srv.Close()
+	assert.True(t, srv.IsClosed())
+}
+
+func waitUntilHTTPServerReady(t *testing.T, server *server) {
+	t.Helper()
+
+	timeout := time.After(3 * time.Second)
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		server.lock.Lock()
+		ready := server.server != nil
+		server.lock.Unlock()
+		if ready {
+			return
+		}
+
+		select {
+		case <-timeout:
+			t.Fatal("timeout waiting for http server to start")
+		case <-tick.C:
+		}
+	}
+}

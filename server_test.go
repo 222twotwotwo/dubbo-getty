@@ -192,9 +192,9 @@ func TestServer(t *testing.T) {
 }
 
 func TestWSServeWSRequestClosesSelfConnectConn(t *testing.T) {
-	srv := newServer(WS_SERVER)
+	server := newServer(WS_SERVER)
 	newSessionCalled := false
-	handler := newWSHandler(srv, func(Session) error {
+	handler := newWSHandler(server, func(Session) error {
 		newSessionCalled = true
 		return errors.New("self-connect request should not create session")
 	})

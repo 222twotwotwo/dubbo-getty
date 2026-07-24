@@ -437,8 +437,7 @@ func (s *server) logHTTPServeClose(err error) {
 
 func isHTTPServeCloseError(err error) bool {
 	return errors.Is(err, http.ErrServerClosed) ||
-		errors.Is(err, net.ErrClosed) ||
-		strings.Contains(err.Error(), "use of closed network connection")
+		errors.Is(err, net.ErrClosed)
 }
 
 func (s *server) logHTTPServeError(err error) {

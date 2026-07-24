@@ -21,9 +21,12 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -250,6 +253,76 @@ func TestWSSServerCloseDoesNotPanic(t *testing.T) {
 	assert.True(t, srv.IsClosed())
 }
 
+func TestHTTPServeCloseErrorClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "http server closed",
+			err:  http.ErrServerClosed,
+			want: true,
+		},
+		{
+			name: "wrapped net closed",
+			err:  fmt.Errorf("wrapped: %w", net.ErrClosed),
+			want: true,
+		},
+		{
+			name: "fatal error with closed listener text",
+			err:  errors.New("fatal listener failure after use of closed network connection marker"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isHTTPServeCloseError(tt.err))
+		})
+	}
+}
+
+func TestWSSEventLoopServeCloseErrorDoesNotPanic(t *testing.T) {
+	srv := newTestWSSServerWithListener(t, &serveErrorListener{
+		err: fmt.Errorf("listener closed: %w", net.ErrClosed),
+	})
+
+	srv.runWSSEventLoop(func(Session) error {
+		return nil
+	})
+	waitUntilHTTPServerReady(t, srv)
+	waitUntilServerLoopDone(t, srv)
+}
+
+func TestWSSEventLoopUnexpectedServeErrorPanics(t *testing.T) {
+	if os.Getenv("GETTY_WSS_FATAL_SERVE_ERROR") == "1" {
+		SetLogger(stderrTestLogger{})
+		srv := newTestWSSServerWithListener(t, &serveErrorListener{
+			err: errors.New("fatal listener failure after use of closed network connection marker"),
+		})
+
+		srv.runWSSEventLoop(func(Session) error {
+			return nil
+		})
+		srv.wg.Wait()
+		t.Fatal("expected WSS Serve error to panic")
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWSSEventLoopUnexpectedServeErrorPanics$")
+	cmd.Env = append(os.Environ(), "GETTY_WSS_FATAL_SERVE_ERROR=1")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected child process to fail from WSS Serve panic, got success:\n%s", output)
+	}
+	if !strings.Contains(string(output), "http.server.Serve") {
+		t.Fatalf("expected child process output to include WSS Serve error log, got:\n%s", output)
+	}
+	if !strings.Contains(string(output), "panic: fatal listener failure after use of closed network connection marker") {
+		t.Fatalf("expected child process output to include WSS Serve panic, got:\n%s", output)
+	}
+}
+
 type hijackResponseWriter struct {
 	header http.Header
 	conn   *selfConnectConn
@@ -311,6 +384,41 @@ func (c *selfConnectConn) SetWriteDeadline(time.Time) error {
 	return nil
 }
 
+type serveErrorListener struct {
+	err error
+}
+
+func (l *serveErrorListener) Accept() (net.Conn, error) {
+	return nil, l.err
+}
+
+func (l *serveErrorListener) Close() error {
+	return nil
+}
+
+func (l *serveErrorListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
+}
+
+func newTestWSSServerWithListener(t *testing.T, listener net.Listener) *server {
+	t.Helper()
+
+	certFile := filepath.Join(t.TempDir(), "server.crt")
+	keyFile := filepath.Join(t.TempDir(), "server.key")
+	assert.NoError(t, DownloadFile(certFile, WssServerCRT))
+	assert.NoError(t, DownloadFile(keyFile, WssServerKEY))
+
+	srv := NewWSSServer(
+		WithLocalAddress(listener.Addr().String()),
+		WithWebsocketServerPath("/hello"),
+		WithWebsocketServerCert(certFile),
+		WithWebsocketServerPrivateKey(keyFile),
+	).(*server)
+	srv.streamListener = listener
+
+	return srv
+}
+
 func waitUntilHTTPServerReady(t *testing.T, server *server) {
 	t.Helper()
 
@@ -333,3 +441,32 @@ func waitUntilHTTPServerReady(t *testing.T, server *server) {
 		}
 	}
 }
+
+func waitUntilServerLoopDone(t *testing.T, server *server) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		server.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for server event loop to exit")
+	}
+}
+
+type stderrTestLogger struct{}
+
+func (stderrTestLogger) Info(args ...any)     {}
+func (stderrTestLogger) Warn(args ...any)     {}
+func (stderrTestLogger) Error(args ...any)    {}
+func (stderrTestLogger) Debug(args ...any)    {}
+func (stderrTestLogger) Infof(string, ...any) {}
+func (stderrTestLogger) Warnf(string, ...any) {}
+func (stderrTestLogger) Errorf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+func (stderrTestLogger) Debugf(string, ...any) {}

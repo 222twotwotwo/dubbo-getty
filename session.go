@@ -721,6 +721,18 @@ func (s *session) handleTCPPackage() error {
 	return perrors.WithStack(err)
 }
 
+func udpReadBufferLen(maxMsgLen int32) int {
+	maxBufLen := maxReadBufLen
+	if maxMsgLen > 0 {
+		maxMsgLen := int(maxMsgLen)
+		maxBufLen = maxMsgLen + maxReadBufLen
+		if maxMsgLen<<1 < maxBufLen {
+			maxBufLen = maxMsgLen << 1
+		}
+	}
+	return maxBufLen
+}
+
 // get package from udp packet
 func (s *session) handleUDPPackage() error {
 	var (
@@ -738,10 +750,7 @@ func (s *session) handleUDPPackage() error {
 	)
 
 	conn = s.Connection.(*gettyUDPConn)
-	maxBufLen = int(s.maxMsgLen + maxReadBufLen)
-	if int(s.maxMsgLen<<1) < bufLen {
-		maxBufLen = int(s.maxMsgLen << 1)
-	}
+	maxBufLen = udpReadBufferLen(s.maxMsgLen)
 	bufp = gxbytes.AcquireBytes(maxBufLen)
 	defer gxbytes.ReleaseBytes(bufp)
 	buf = *bufp

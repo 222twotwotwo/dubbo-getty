@@ -32,6 +32,48 @@ func (errorReader) Read(Session, []byte) (any, int, error) {
 	return nil, 0, errTestReadFailure
 }
 
+func TestUDPReadBufferLen(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxMsgLen int32
+		want      int
+	}{
+		{
+			name:      "negative max message length uses default read buffer",
+			maxMsgLen: -1,
+			want:      maxReadBufLen,
+		},
+		{
+			name:      "zero max message length uses default read buffer",
+			maxMsgLen: 0,
+			want:      maxReadBufLen,
+		},
+		{
+			name:      "small max message length caps buffer at twice max message length",
+			maxMsgLen: 1,
+			want:      2,
+		},
+		{
+			name:      "default max message length allows one extra read buffer",
+			maxMsgLen: maxReadBufLen,
+			want:      maxReadBufLen * 2,
+		},
+		{
+			name:      "larger max message length adds one read buffer",
+			maxMsgLen: maxReadBufLen * 2,
+			want:      maxReadBufLen * 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := udpReadBufferLen(tt.maxMsgLen); got != tt.want {
+				t.Fatalf("udpReadBufferLen(%d) = %d, want %d", tt.maxMsgLen, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestHandlePackageWithNilListenerDoesNotPanicOnError(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

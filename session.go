@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"runtime"
 	"sync"
@@ -721,13 +722,13 @@ func (s *session) handleTCPPackage() error {
 	return perrors.WithStack(err)
 }
 
-func udpReadBufferLen(maxMsgLen int32) int {
-	maxBufLen := maxReadBufLen
+func udpReadBufferLen(maxMsgLen int32) int64 {
+	maxBufLen := int64(maxReadBufLen)
 	if maxMsgLen > 0 {
-		maxMsgLen := int(maxMsgLen)
-		maxBufLen = maxMsgLen + maxReadBufLen
-		if maxMsgLen<<1 < maxBufLen {
-			maxBufLen = maxMsgLen << 1
+		msgLen := int64(maxMsgLen)
+		maxBufLen = msgLen + maxReadBufLen
+		if msgLen<<1 < maxBufLen {
+			maxBufLen = msgLen << 1
 		}
 	}
 	return maxBufLen
@@ -741,7 +742,7 @@ func (s *session) handleUDPPackage() error {
 		netError  net.Error
 		conn      *gettyUDPConn
 		bufLen    int
-		maxBufLen int
+		maxBufLen int64
 		bufp      *[]byte
 		buf       []byte
 		addr      *net.UDPAddr
@@ -751,7 +752,10 @@ func (s *session) handleUDPPackage() error {
 
 	conn = s.Connection.(*gettyUDPConn)
 	maxBufLen = udpReadBufferLen(s.maxMsgLen)
-	bufp = gxbytes.AcquireBytes(maxBufLen)
+	if maxBufLen > int64(math.MaxInt) {
+		return perrors.Errorf("udp read buffer length %d exceeds max int %d", maxBufLen, math.MaxInt)
+	}
+	bufp = gxbytes.AcquireBytes(int(maxBufLen))
 	defer gxbytes.ReleaseBytes(bufp)
 	buf = *bufp
 	for !s.IsClosed() {

@@ -36,17 +36,17 @@ func TestUDPReadBufferLen(t *testing.T) {
 	tests := []struct {
 		name      string
 		maxMsgLen int32
-		want      int
+		want      int64
 	}{
 		{
 			name:      "negative max message length uses default read buffer",
 			maxMsgLen: -1,
-			want:      maxReadBufLen,
+			want:      int64(maxReadBufLen),
 		},
 		{
 			name:      "zero max message length uses default read buffer",
 			maxMsgLen: 0,
-			want:      maxReadBufLen,
+			want:      int64(maxReadBufLen),
 		},
 		{
 			name:      "small max message length caps buffer at twice max message length",
@@ -56,12 +56,12 @@ func TestUDPReadBufferLen(t *testing.T) {
 		{
 			name:      "default max message length allows one extra read buffer",
 			maxMsgLen: maxReadBufLen,
-			want:      maxReadBufLen * 2,
+			want:      int64(maxReadBufLen * 2),
 		},
 		{
 			name:      "larger max message length adds one read buffer",
 			maxMsgLen: maxReadBufLen * 2,
-			want:      maxReadBufLen * 3,
+			want:      int64(maxReadBufLen * 3),
 		},
 	}
 

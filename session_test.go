@@ -19,6 +19,7 @@ package getty
 
 import (
 	"errors"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -62,6 +63,11 @@ func TestUDPReadBufferLen(t *testing.T) {
 			name:      "larger max message length adds one read buffer",
 			maxMsgLen: maxReadBufLen * 2,
 			want:      int64(maxReadBufLen * 3),
+		},
+		{
+			name:      "large max message length keeps 64-bit arithmetic",
+			maxMsgLen: math.MaxInt32,
+			want:      int64(math.MaxInt32) + maxReadBufLen,
 		},
 	}
 

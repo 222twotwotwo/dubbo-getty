@@ -22,7 +22,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"math"
 	"net"
 	"os"
 	"strings"
@@ -153,29 +152,32 @@ func (c *client) dialTCP() Session {
 		conn net.Conn
 	)
 
-	for {
-		if c.IsClosed() {
-			return nil
-		}
-		if c.sslEnabled {
-			if sslConfig, buildTlsConfErr := c.tlsConfigBuilder.BuildTlsConfig(); buildTlsConfErr == nil && sslConfig != nil {
-				d := &net.Dialer{Timeout: connectTimeout}
-				conn, err = tls.DialWithDialer(d, "tcp", c.addr, sslConfig)
-			}
-		} else {
-			conn, err = net.DialTimeout("tcp", c.addr, connectTimeout)
-		}
-		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			_ = conn.Close()
-			err = errSelfConnect
-		}
-		if err == nil {
-			return newTCPSession(conn, c)
-		}
-
-		log.Infof("net.DialTimeout(addr:%s, timeout:%v) = error:%+v", c.addr, connectTimeout, perrors.WithStack(err))
-		<-gxtime.After(connectInterval)
+	if c.IsClosed() {
+		return nil
 	}
+	if c.sslEnabled {
+		sslConfig, buildTlsConfErr := c.tlsConfigBuilder.BuildTlsConfig()
+		if buildTlsConfErr != nil {
+			err = buildTlsConfErr
+		} else if sslConfig == nil {
+			err = fmt.Errorf("tlsConfigBuilder returned nil config without error")
+		} else {
+			d := &net.Dialer{Timeout: connectTimeout}
+			conn, err = tls.DialWithDialer(d, "tcp", c.addr, sslConfig)
+		}
+	} else {
+		conn, err = net.DialTimeout("tcp", c.addr, connectTimeout)
+	}
+	if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
+		_ = conn.Close()
+		err = errSelfConnect
+	}
+	if err == nil {
+		return newTCPSession(conn, c)
+	}
+
+	log.Infof("net.DialTimeout(addr:%s, timeout:%v) = error:%+v", c.addr, connectTimeout, perrors.WithStack(err))
+	return nil
 }
 
 func (c *client) dialUDP() Session {
@@ -194,46 +196,41 @@ func (c *client) dialUDP() Session {
 	buf = *bufp
 	localAddr = &net.UDPAddr{IP: net.IPv4zero, Port: 0}
 	peerAddr, _ = net.ResolveUDPAddr("udp", c.addr)
-	for {
-		if c.IsClosed() {
-			return nil
-		}
-		conn, err = net.DialUDP("udp", localAddr, peerAddr)
-		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			_ = conn.Close()
-			err = errSelfConnect
-		}
-		if err != nil {
-			log.Warnf("net.DialTimeout(addr:%s, timeout:%v) = error:%+v", c.addr, perrors.WithStack(err))
-			<-gxtime.After(connectInterval)
-			continue
-		}
-
-		// check connection alive by write/read action
-		if err := conn.SetWriteDeadline(time.Now().Add(1e9)); err != nil {
-			log.Warnf("failed to set write deadline: %+v", err)
-		}
-		if length, err = conn.Write(connectPingPackage[:]); err != nil {
-			_ = conn.Close()
-			log.Warnf("conn.Write(%s) = {length:%d, err:%+v}", string(connectPingPackage), length, perrors.WithStack(err))
-			<-gxtime.After(connectInterval)
-			continue
-		}
-		if err := conn.SetReadDeadline(time.Now().Add(1e9)); err != nil {
-			log.Warnf("failed to set read deadline: %+v", err)
-		}
-		length, err = conn.Read(buf)
-		if netErr, ok := perrors.Cause(err).(net.Error); ok && netErr.Timeout() {
-			err = nil
-		}
-		if err != nil {
-			log.Infof("conn{%#v}.Read() = {length:%d, err:%+v}", conn, length, perrors.WithStack(err))
-			_ = conn.Close()
-			<-gxtime.After(connectInterval)
-			continue
-		}
-		return newUDPSession(conn, c)
+	if c.IsClosed() {
+		return nil
 	}
+	conn, err = net.DialUDP("udp", localAddr, peerAddr)
+	if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
+		_ = conn.Close()
+		err = errSelfConnect
+	}
+	if err != nil {
+		log.Warnf("net.DialUDP(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+		return nil
+	}
+
+	// check connection alive by write/read action
+	if err := conn.SetWriteDeadline(time.Now().Add(1e9)); err != nil {
+		log.Warnf("failed to set write deadline: %+v", err)
+	}
+	if length, err = conn.Write(connectPingPackage[:]); err != nil {
+		_ = conn.Close()
+		log.Warnf("conn.Write(%s) = {length:%d, err:%+v}", string(connectPingPackage), length, perrors.WithStack(err))
+		return nil
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(1e9)); err != nil {
+		log.Warnf("failed to set read deadline: %+v", err)
+	}
+	length, err = conn.Read(buf)
+	if netErr, ok := perrors.Cause(err).(net.Error); ok && netErr.Timeout() {
+		err = nil
+	}
+	if err != nil {
+		log.Infof("conn{%#v}.Read() = {length:%d, err:%+v}", conn, length, perrors.WithStack(err))
+		_ = conn.Close()
+		return nil
+	}
+	return newUDPSession(conn, c)
 }
 
 func (c *client) dialWS() Session {
@@ -245,28 +242,25 @@ func (c *client) dialWS() Session {
 	)
 
 	dialer.EnableCompression = true
-	for {
-		if c.IsClosed() {
-			return nil
-		}
-		conn, _, err = dialer.Dial(c.addr, nil)
-		log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
-		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			_ = conn.Close()
-			err = errSelfConnect
-		}
-		if err == nil {
-			ss = newWSSession(conn, c)
-			if ss.(*session).maxMsgLen > 0 {
-				conn.SetReadLimit(int64(ss.(*session).maxMsgLen))
-			}
-
-			return ss
-		}
-
-		log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
-		<-gxtime.After(connectInterval)
+	if c.IsClosed() {
+		return nil
 	}
+	conn, _, err = dialer.Dial(c.addr, nil)
+	if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
+		_ = conn.Close()
+		err = errSelfConnect
+	}
+	if err == nil {
+		ss = newWSSession(conn, c)
+		if ss.(*session).maxMsgLen > 0 {
+			conn.SetReadLimit(int64(ss.(*session).maxMsgLen))
+		}
+
+		return ss
+	}
+
+	log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+	return nil
 }
 
 func (c *client) dialWSS() Session {
@@ -323,28 +317,26 @@ func (c *client) dialWSS() Session {
 
 	// dialer.EnableCompression = true
 	dialer.TLSClientConfig = config
-	for {
-		if c.IsClosed() {
-			return nil
-		}
-		conn, _, err = dialer.Dial(c.addr, nil)
-		if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
-			_ = conn.Close()
-			err = errSelfConnect
-		}
-		if err == nil {
-			ss = newWSSession(conn, c)
-			if ss.(*session).maxMsgLen > 0 {
-				conn.SetReadLimit(int64(ss.(*session).maxMsgLen))
-			}
-			ss.SetName(defaultWSSSessionName)
-
-			return ss
-		}
-
-		log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
-		<-gxtime.After(connectInterval)
+	if c.IsClosed() {
+		return nil
 	}
+	conn, _, err = dialer.Dial(c.addr, nil)
+	if err == nil && gxnet.IsSameAddr(conn.RemoteAddr(), conn.LocalAddr()) {
+		_ = conn.Close()
+		err = errSelfConnect
+	}
+	if err == nil {
+		ss = newWSSession(conn, c)
+		if ss.(*session).maxMsgLen > 0 {
+			conn.SetReadLimit(int64(ss.(*session).maxMsgLen))
+		}
+		ss.SetName(defaultWSSSessionName)
+
+		return ss
+	}
+
+	log.Infof("websocket.dialer.Dial(addr:%s) = error:%+v", c.addr, perrors.WithStack(err))
+	return nil
 }
 
 func (c *client) dial() Session {
@@ -381,7 +373,7 @@ func (c *client) sessionNum() int {
 	return num
 }
 
-func (c *client) connect() {
+func (c *client) connect() bool {
 	var (
 		err error
 		ss  Session
@@ -405,12 +397,13 @@ func (c *client) connect() {
 			c.Unlock()
 			ss.SetAttribute(sessionClientKey, c)
 			ss.SetAttribute(ignoreReconnectKey, false)
-			break
+			return true
 		}
 		// don't distinguish between tcp connection and websocket connection. Because
 		// gorilla/websocket/conn.go:(Conn)Close also invoke net.Conn.Close()
 		_ = ss.Conn().Close()
 	}
+	return false
 }
 
 // there are two methods to keep connection pool. the first approach is like
@@ -429,10 +422,7 @@ func (c *client) RunEventLoop(newSession NewSessionCallback) {
 
 // a for-loop connect to make sure the connection pool is valid
 func (c *client) reConnect() {
-	var (
-		sessionNum, reconnectAttempts int
-		maxReconnectInterval          int64
-	)
+	var reconnectAttempts int
 	reconnectInterval := c.reconnectInterval
 	if reconnectInterval == 0 {
 		reconnectInterval = defaultReconnectInterval
@@ -442,21 +432,34 @@ func (c *client) reConnect() {
 		maxReconnectAttempts = defaultMaxReconnectAttempts
 	}
 	connPoolSize := c.number
-	for {
+	for reconnectAttempts < maxReconnectAttempts {
 		if c.IsClosed() {
 			log.Warnf("client{peer:%s} goroutine exit now.", c.addr)
-			break
+			return
 		}
 
-		sessionNum = c.sessionNum()
-		if connPoolSize <= sessionNum || maxReconnectAttempts < reconnectAttempts {
-			//exit reconnect when the number of connection pools is sufficient or the current reconnection attempts exceeds the max reconnection attempts.
-			break
+		if connPoolSize <= c.sessionNum() {
+			return
 		}
-		c.connect()
+		if c.connect() {
+			reconnectAttempts = 0
+			continue
+		}
 		reconnectAttempts++
-		maxReconnectInterval = int64(math.Min(float64(reconnectAttempts), float64(maxBackOffTimes))) * int64(reconnectInterval)
-		<-gxtime.After(time.Duration(maxReconnectInterval))
+		if c.IsClosed() || connPoolSize <= c.sessionNum() || reconnectAttempts >= maxReconnectAttempts {
+			return
+		}
+
+		backOffTimes := reconnectAttempts
+		if maxBackOffTimes < backOffTimes {
+			backOffTimes = maxBackOffTimes
+		}
+		backoff := time.Duration(int64(backOffTimes) * int64(reconnectInterval))
+		select {
+		case <-c.done:
+			return
+		case <-gxtime.After(backoff):
+		}
 	}
 }
 

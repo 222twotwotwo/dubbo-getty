@@ -93,7 +93,7 @@ func newSessionCallback(session Session, handler *MessageHandler) error {
 
 func TestTCPClient(t *testing.T) {
 	listenLocalServer := func() (net.Listener, error) {
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, err
 		}
@@ -199,6 +199,71 @@ func TestTCPClient(t *testing.T) {
 
 	clt.Close()
 	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientReconnectStopsAfterMaxAttempts(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	addr := listener.Addr().String()
+	assert.Nil(t, listener.Close())
+
+	clt := NewTCPClient(
+		WithServerAddress(addr),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithConnectionNumber(1),
+		WithReconnectAttempts(2),
+	)
+	assert.NotNil(t, clt)
+
+	done := make(chan struct{})
+	go func() {
+		var msgHandler MessageHandler
+		cb := func(session Session) error {
+			return newSessionCallback(session, &msgHandler)
+		}
+		clt.RunEventLoop(cb)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client reconnect loop did not stop after max reconnect attempts")
+	}
+
+	clt.Close()
+	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientReconnectAttemptsIgnoreSuccessfulPoolFills(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	defer func() {
+		_ = listener.Close()
+	}()
+	go func() {
+		_ = http.Serve(listener, nil)
+	}()
+
+	const connPoolSize = 3
+	clt := NewTCPClient(
+		WithServerAddress(listener.Addr().String()),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithConnectionNumber(connPoolSize),
+		WithReconnectAttempts(1),
+	)
+	assert.NotNil(t, clt)
+	defer clt.Close()
+
+	var msgHandler MessageHandler
+	cb := func(session Session) error {
+		return newSessionCallback(session, &msgHandler)
+	}
+	clt.RunEventLoop(cb)
+
+	assert.Equal(t, connPoolSize, msgHandler.SessionNumber())
 }
 
 func TestUDPClient(t *testing.T) {

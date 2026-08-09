@@ -391,7 +391,8 @@ func (c *client) connect() bool {
 			c.Lock()
 			if c.ssMap == nil {
 				c.Unlock()
-				break
+				ss.Close()
+				return false
 			}
 			c.ssMap[ss] = struct{}{}
 			c.Unlock()

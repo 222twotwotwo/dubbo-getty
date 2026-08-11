@@ -103,7 +103,9 @@ func TestSessionReconnectIsTrackedByClose(t *testing.T) {
 			if err != nil {
 				return
 			}
-			defer conn.Close()
+			defer func() {
+				_ = conn.Close()
+			}()
 		}
 	}()
 	defer func() {

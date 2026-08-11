@@ -91,6 +91,100 @@ func newSessionCallback(session Session, handler *MessageHandler) error {
 	return nil
 }
 
+func TestSessionReconnectIsTrackedByClose(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+		}
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-acceptDone
+	}()
+
+	releaseReconnect := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseReconnect)
+		})
+	}
+	defer release()
+
+	clt := newClient(
+		TCP_CLIENT,
+		WithServerAddress(listener.Addr().String()),
+		WithConnectionNumber(1),
+		WithReconnectInterval(int(2*time.Second)),
+		WithReconnectAttempts(3),
+	)
+	reconnectStarted := make(chan struct{}, 1)
+	var msgHandler MessageHandler
+	clt.newSession = func(session Session) error {
+		if err := newSessionCallback(session, &msgHandler); err != nil {
+			return err
+		}
+		select {
+		case reconnectStarted <- struct{}{}:
+		default:
+		}
+		<-releaseReconnect
+		return nil
+	}
+
+	localConn, peerConn := net.Pipe()
+	defer func() {
+		_ = localConn.Close()
+		_ = peerConn.Close()
+	}()
+	ss := newTCPSession(localConn, clt).(*session)
+	ss.SetAttribute(sessionClientKey, clt)
+	ss.SetAttribute(ignoreReconnectKey, false)
+
+	sessionStopDone := make(chan struct{})
+	go func() {
+		ss.stop()
+		close(sessionStopDone)
+	}()
+	select {
+	case <-reconnectStarted:
+	case <-time.After(time.Second):
+		t.Fatal("session-triggered reconnect did not start")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		clt.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+		t.Fatal("Close returned while the session-triggered reconnect was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not return after the session-triggered reconnect completed")
+	}
+	select {
+	case <-sessionStopDone:
+	case <-time.After(time.Second):
+		t.Fatal("session stop did not return")
+	}
+}
+
 func TestTCPClient(t *testing.T) {
 	listenLocalServer := func() (net.Listener, error) {
 		listener, err := net.Listen("tcp", ":0")

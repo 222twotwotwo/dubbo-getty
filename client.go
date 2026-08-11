@@ -424,7 +424,28 @@ func (c *client) RunEventLoop(newSession NewSessionCallback) {
 	c.Lock()
 	c.newSession = newSession
 	c.Unlock()
-	c.reConnect()
+	<-c.runReconnect()
+}
+
+func (c *client) runReconnect() <-chan struct{} {
+	done := make(chan struct{})
+	c.Lock()
+	select {
+	case <-c.done:
+		c.Unlock()
+		close(done)
+		return done
+	default:
+		c.wg.Add(1)
+	}
+	c.Unlock()
+
+	go func() {
+		defer c.wg.Done()
+		defer close(done)
+		c.reConnect()
+	}()
+	return done
 }
 
 // a for-loop connect to make sure the connection pool is valid
@@ -456,28 +477,28 @@ func (c *client) reConnect() {
 		c.connect()
 		reconnectAttempts++
 		maxReconnectInterval = int64(math.Min(float64(reconnectAttempts), float64(maxBackOffTimes))) * int64(reconnectInterval)
-		<-gxtime.After(time.Duration(maxReconnectInterval))
+		select {
+		case <-c.done:
+			return
+		case <-gxtime.After(time.Duration(maxReconnectInterval)):
+		}
 	}
 }
 
 func (c *client) stop() {
-	select {
-	case <-c.done:
-		return
-	default:
-		c.Do(func() {
-			close(c.done)
-			c.Lock()
-			for s := range c.ssMap {
-				s.RemoveAttribute(sessionClientKey)
-				s.RemoveAttribute(ignoreReconnectKey)
-				s.Close()
-			}
-			c.ssMap = nil
+	c.Do(func() {
+		c.Lock()
+		close(c.done)
+		sessions := c.ssMap
+		c.ssMap = nil
+		c.Unlock()
 
-			c.Unlock()
-		})
-	}
+		for s := range sessions {
+			s.RemoveAttribute(sessionClientKey)
+			s.RemoveAttribute(ignoreReconnectKey)
+			s.Close()
+		}
+	})
 }
 
 func (c *client) IsClosed() bool {

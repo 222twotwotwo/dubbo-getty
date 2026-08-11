@@ -856,7 +856,7 @@ func (s *session) stop() {
 			clt, cltFound := s.GetAttribute(sessionClientKey).(*client)
 			ignoreReconnect, flagFound := s.GetAttribute(ignoreReconnectKey).(bool)
 			if cltFound && flagFound && !ignoreReconnect {
-				clt.reConnect()
+				clt.runReconnect()
 			}
 		})
 	}

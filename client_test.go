@@ -19,6 +19,7 @@ package getty
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -247,6 +248,69 @@ func TestTCPClientReconnectStopsAfterMaxAttempts(t *testing.T) {
 		t.Fatal("client reconnect loop did not stop after max reconnect attempts")
 	}
 
+	clt.Close()
+	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientReconnectBacksOffWhenNewSessionFails(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+
+	acceptDone := make(chan struct{})
+	accepted := make(chan struct{}, 2)
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
+			_ = conn.Close()
+		}
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-acceptDone
+	}()
+
+	clt := NewTCPClient(
+		WithServerAddress(listener.Addr().String()),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithConnectionNumber(1),
+		WithReconnectAttempts(2),
+	)
+	assert.NotNil(t, clt)
+
+	done := make(chan struct{})
+	attempts := 0
+	go func() {
+		cb := func(session Session) error {
+			attempts++
+			return errors.New("test new session failure")
+		}
+		clt.RunEventLoop(cb)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("client reconnect loop did not stop when newSession kept failing")
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-accepted:
+		case <-time.After(time.Second):
+			t.Fatal("server did not accept client connection")
+		}
+	}
+	assert.Equal(t, 2, attempts)
 	clt.Close()
 	assert.True(t, clt.IsClosed())
 }

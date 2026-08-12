@@ -379,31 +379,29 @@ func (c *client) connect() bool {
 		ss  Session
 	)
 
-	for {
-		ss = c.dial()
-		if ss == nil {
-			// client has been closed
-			break
-		}
-		err = c.newSession(ss)
-		if err == nil {
-			ss.(*session).run()
-			c.Lock()
-			if c.ssMap == nil {
-				c.Unlock()
-				ss.Close()
-				return false
-			}
-			c.ssMap[ss] = struct{}{}
-			c.Unlock()
-			ss.SetAttribute(sessionClientKey, c)
-			ss.SetAttribute(ignoreReconnectKey, false)
-			return true
-		}
-		// don't distinguish between tcp connection and websocket connection. Because
-		// gorilla/websocket/conn.go:(Conn)Close also invoke net.Conn.Close()
-		_ = ss.Conn().Close()
+	ss = c.dial()
+	if ss == nil {
+		// client has been closed
+		return false
 	}
+	err = c.newSession(ss)
+	if err == nil {
+		ss.(*session).run()
+		c.Lock()
+		if c.ssMap == nil {
+			c.Unlock()
+			ss.Close()
+			return false
+		}
+		c.ssMap[ss] = struct{}{}
+		c.Unlock()
+		ss.SetAttribute(sessionClientKey, c)
+		ss.SetAttribute(ignoreReconnectKey, false)
+		return true
+	}
+	// don't distinguish between tcp connection and websocket connection. Because
+	// gorilla/websocket/conn.go:(Conn)Close also invoke net.Conn.Close()
+	_ = ss.Conn().Close()
 	return false
 }
 

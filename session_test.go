@@ -19,6 +19,7 @@ package getty
 
 import (
 	"errors"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -30,6 +31,53 @@ type errorReader struct{}
 
 func (errorReader) Read(Session, []byte) (any, int, error) {
 	return nil, 0, errTestReadFailure
+}
+
+func TestUDPReadBufferLen(t *testing.T) {
+	tests := []struct {
+		name      string
+		maxMsgLen int32
+		want      int64
+	}{
+		{
+			name:      "negative max message length uses default read buffer",
+			maxMsgLen: -1,
+			want:      int64(maxReadBufLen),
+		},
+		{
+			name:      "zero max message length uses default read buffer",
+			maxMsgLen: 0,
+			want:      int64(maxReadBufLen),
+		},
+		{
+			name:      "small max message length caps buffer at twice max message length",
+			maxMsgLen: 1,
+			want:      2,
+		},
+		{
+			name:      "default max message length allows one extra read buffer",
+			maxMsgLen: maxReadBufLen,
+			want:      int64(maxReadBufLen * 2),
+		},
+		{
+			name:      "larger max message length adds one read buffer",
+			maxMsgLen: maxReadBufLen * 2,
+			want:      int64(maxReadBufLen * 3),
+		},
+		{
+			name:      "large max message length keeps 64-bit arithmetic",
+			maxMsgLen: math.MaxInt32,
+			want:      int64(math.MaxInt32) + maxReadBufLen,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := udpReadBufferLen(tt.maxMsgLen); got != tt.want {
+				t.Fatalf("udpReadBufferLen(%d) = %d, want %d", tt.maxMsgLen, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestHandlePackageWithNilListenerDoesNotPanicOnError(t *testing.T) {

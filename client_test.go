@@ -19,6 +19,7 @@ package getty
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -69,6 +70,21 @@ func (h *MessageHandler) OnClose(session Session)            {}
 func (h *MessageHandler) OnMessage(session Session, pkg any) {}
 func (h *MessageHandler) OnCron(session Session)             {}
 
+type poolClosingMessageHandler struct {
+	MessageHandler
+	client *client
+	opened chan Session
+}
+
+func (h *poolClosingMessageHandler) OnOpen(session Session) error {
+	h.client.Lock()
+	h.client.ssMap = nil
+	h.client.Unlock()
+	h.opened <- session
+
+	return h.MessageHandler.OnOpen(session)
+}
+
 type Package struct{}
 
 func (p Package) String() string {
@@ -93,7 +109,7 @@ func newSessionCallback(session Session, handler *MessageHandler) error {
 
 func TestTCPClient(t *testing.T) {
 	listenLocalServer := func() (net.Listener, error) {
-		listener, err := net.Listen("tcp", ":0")
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, err
 		}
@@ -199,6 +215,271 @@ func TestTCPClient(t *testing.T) {
 
 	clt.Close()
 	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientReconnectStopsAfterMaxAttempts(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	addr := listener.Addr().String()
+	assert.Nil(t, listener.Close())
+
+	clt := NewTCPClient(
+		WithServerAddress(addr),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithConnectionNumber(1),
+		WithReconnectAttempts(2),
+	)
+	assert.NotNil(t, clt)
+
+	done := make(chan struct{})
+	go func() {
+		var msgHandler MessageHandler
+		cb := func(session Session) error {
+			return newSessionCallback(session, &msgHandler)
+		}
+		clt.RunEventLoop(cb)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("client reconnect loop did not stop after max reconnect attempts")
+	}
+
+	clt.Close()
+	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientReconnectBacksOffWhenNewSessionFails(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+
+	acceptDone := make(chan struct{})
+	accepted := make(chan struct{}, 2)
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
+			_ = conn.Close()
+		}
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-acceptDone
+	}()
+
+	clt := NewTCPClient(
+		WithServerAddress(listener.Addr().String()),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithConnectionNumber(1),
+		WithReconnectAttempts(2),
+	)
+	assert.NotNil(t, clt)
+
+	done := make(chan struct{})
+	attempts := 0
+	go func() {
+		cb := func(session Session) error {
+			attempts++
+			return errors.New("test new session failure")
+		}
+		clt.RunEventLoop(cb)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("client reconnect loop did not stop when newSession kept failing")
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-accepted:
+		case <-time.After(time.Second):
+			t.Fatal("server did not accept client connection")
+		}
+	}
+	assert.Equal(t, 2, attempts)
+	clt.Close()
+	assert.True(t, clt.IsClosed())
+}
+
+func TestTCPClientConnectClosesSessionWhenPoolClosed(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	defer func() {
+		_ = listener.Close()
+	}()
+
+	acceptedConn := make(chan net.Conn, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			acceptErr <- err
+			return
+		}
+		acceptedConn <- conn
+	}()
+
+	clt := NewTCPClient(
+		WithServerAddress(listener.Addr().String()),
+		WithConnectionNumber(1),
+	).(*client)
+	defer clt.Close()
+
+	handler := &poolClosingMessageHandler{
+		client: clt,
+		opened: make(chan Session, 1),
+	}
+	clt.newSession = func(session Session) error {
+		var pkgHandler PackageHandler
+		session.SetName("pool-closing-client-session")
+		session.SetPkgHandler(&pkgHandler)
+		session.SetEventListener(handler)
+		session.SetReadTimeout(time.Millisecond)
+		session.SetWriteTimeout(time.Millisecond)
+		session.SetWaitTime(time.Millisecond)
+
+		return nil
+	}
+
+	assert.False(t, clt.connect())
+
+	select {
+	case session := <-handler.opened:
+		assert.True(t, session.IsClosed())
+	case <-time.After(time.Second):
+		t.Fatal("session was not opened")
+	}
+
+	select {
+	case conn := <-acceptedConn:
+		_ = conn.Close()
+	case err := <-acceptErr:
+		t.Fatalf("server accept failed: %+v", err)
+	case <-time.After(time.Second):
+		t.Fatal("server did not accept client connection")
+	}
+}
+
+func TestTCPClientReconnectAttemptsIgnoreSuccessfulPoolFills(t *testing.T) {
+	const connPoolSize = 3
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	addr := listener.Addr().String()
+	assert.Nil(t, listener.Close())
+
+	var (
+		serverLock sync.Mutex
+		listeners  []net.Listener
+		conns      []net.Conn
+		acceptDone <-chan struct{}
+		serverErr  = make(chan error, connPoolSize)
+	)
+	defer func() {
+		serverLock.Lock()
+		defer serverLock.Unlock()
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+	}()
+
+	startServer := func() {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			serverErr <- err
+			return
+		}
+
+		done := make(chan struct{})
+		serverLock.Lock()
+		listeners = append(listeners, ln)
+		acceptDone = done
+		serverLock.Unlock()
+
+		go func() {
+			conn, err := ln.Accept()
+			_ = ln.Close()
+			if err == nil {
+				serverLock.Lock()
+				conns = append(conns, conn)
+				serverLock.Unlock()
+			}
+			close(done)
+		}()
+	}
+
+	waitAccepted := func() {
+		serverLock.Lock()
+		done := acceptDone
+		acceptDone = nil
+		serverLock.Unlock()
+		if done == nil {
+			t.Fatal("client connected before the test server was ready")
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("server did not accept client connection")
+		}
+	}
+
+	time.AfterFunc(10*time.Millisecond, startServer)
+
+	clt := NewTCPClient(
+		WithServerAddress(addr),
+		WithReconnectInterval(int(50*time.Millisecond)),
+		WithConnectionNumber(connPoolSize),
+		WithReconnectAttempts(2),
+	)
+	assert.NotNil(t, clt)
+	defer clt.Close()
+
+	var (
+		msgHandler MessageHandler
+		successes  int
+	)
+	cb := func(session Session) error {
+		waitAccepted()
+		successes++
+		if successes < connPoolSize {
+			time.AfterFunc(10*time.Millisecond, startServer)
+		}
+		return newSessionCallback(session, &msgHandler)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		clt.RunEventLoop(cb)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case err := <-serverErr:
+		t.Fatalf("failed to start test server: %+v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("client reconnect loop did not complete")
+	}
+
+	assert.Equal(t, connPoolSize, msgHandler.SessionNumber())
 }
 
 func TestUDPClient(t *testing.T) {

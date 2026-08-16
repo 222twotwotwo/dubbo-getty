@@ -47,16 +47,6 @@ func (h *PackageHandler) Write(ss Session, pkg any) ([]byte, error) {
 	return nil, nil
 }
 
-type failingPackageHandler struct{}
-
-func (h *failingPackageHandler) Read(ss Session, data []byte) (any, int, error) {
-	return nil, len(data), errors.New("test package read failure")
-}
-
-func (h *failingPackageHandler) Write(ss Session, pkg any) ([]byte, error) {
-	return nil, nil
-}
-
 type MessageHandler struct {
 	lock  sync.Mutex
 	array []Session
@@ -125,6 +115,7 @@ type countingTLSConfigBuilder struct {
 	calls   atomic.Int32
 	entered chan struct{}
 	release <-chan struct{}
+	exited  chan struct{}
 }
 
 func (b *countingTLSConfigBuilder) BuildTlsConfig() (*tls.Config, error) {
@@ -137,6 +128,12 @@ func (b *countingTLSConfigBuilder) BuildTlsConfig() (*tls.Config, error) {
 	}
 	if b.release != nil {
 		<-b.release
+	}
+	if b.exited != nil {
+		select {
+		case b.exited <- struct{}{}:
+		default:
+		}
 	}
 	return nil, errTestTLSConfig
 }
@@ -206,119 +203,7 @@ func TestRunReconnectAfterCloseIsNoop(t *testing.T) {
 	assert.Equal(t, int32(0), builder.calls.Load())
 }
 
-func TestSessionReconnectIsTrackedByClose(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.Nil(t, err)
-	assert.NotNil(t, listener)
-	acceptDone := make(chan struct{})
-	go func() {
-		defer close(acceptDone)
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			defer func() {
-				_ = conn.Close()
-			}()
-		}
-	}()
-	defer func() {
-		_ = listener.Close()
-		<-acceptDone
-	}()
-
-	releaseReconnect := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() {
-		releaseOnce.Do(func() {
-			close(releaseReconnect)
-		})
-	}
-	defer release()
-
-	clt := newClient(
-		TCP_CLIENT,
-		WithServerAddress(listener.Addr().String()),
-		WithConnectionNumber(1),
-		WithReconnectInterval(int(2*time.Second)),
-		WithReconnectAttempts(3),
-	)
-	reconnectStarted := make(chan struct{}, 1)
-	var msgHandler MessageHandler
-	clt.newSession = func(session Session) error {
-		if err := newSessionCallback(session, &msgHandler); err != nil {
-			return err
-		}
-		select {
-		case reconnectStarted <- struct{}{}:
-		default:
-		}
-		<-releaseReconnect
-		return nil
-	}
-
-	localConn, peerConn := net.Pipe()
-	defer func() {
-		_ = localConn.Close()
-		_ = peerConn.Close()
-	}()
-	ss := newTCPSession(localConn, clt).(*session)
-	ss.SetAttribute(sessionClientKey, clt)
-	ss.SetAttribute(ignoreReconnectKey, false)
-
-	sessionStopDone := make(chan struct{})
-	go func() {
-		ss.stop()
-		close(sessionStopDone)
-	}()
-	select {
-	case <-reconnectStarted:
-	case <-time.After(time.Second):
-		t.Fatal("session-triggered reconnect did not start")
-	}
-
-	closeDone := make(chan struct{})
-	go func() {
-		clt.Close()
-		close(closeDone)
-	}()
-	select {
-	case <-closeDone:
-		t.Fatal("Close returned while the session-triggered reconnect was still running")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	release()
-	select {
-	case <-closeDone:
-	case <-time.After(time.Second):
-		t.Fatal("Close did not return after the session-triggered reconnect completed")
-	}
-	select {
-	case <-sessionStopDone:
-	case <-time.After(time.Second):
-		t.Fatal("session stop did not return")
-	}
-}
-
-func TestSessionErrorReconnectInterleavesWithClose(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	assert.Nil(t, err)
-	assert.NotNil(t, listener)
-
-	clientConn, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
-	assert.Nil(t, err)
-	assert.NotNil(t, clientConn)
-	serverConn, err := listener.Accept()
-	assert.Nil(t, err)
-	assert.NotNil(t, serverConn)
-	defer func() {
-		_ = listener.Close()
-		_ = clientConn.Close()
-		_ = serverConn.Close()
-	}()
-
+func TestSessionTriggeredReconnectDoesNotBlockClose(t *testing.T) {
 	releaseReconnect := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() {
@@ -331,23 +216,24 @@ func TestSessionErrorReconnectInterleavesWithClose(t *testing.T) {
 	builder := &countingTLSConfigBuilder{
 		entered: make(chan struct{}, 1),
 		release: releaseReconnect,
+		exited:  make(chan struct{}, 1),
 	}
 	clt := newFailingReconnectClient(builder, 2*time.Second, 3)
 
-	var msgHandler MessageHandler
-	ss := newTCPSession(clientConn, clt).(*session)
-	assert.Nil(t, newSessionCallback(ss, &msgHandler))
-	ss.SetPkgHandler(&failingPackageHandler{})
+	localConn, peerConn := net.Pipe()
+	defer func() {
+		_ = localConn.Close()
+		_ = peerConn.Close()
+	}()
+	ss := newTCPSession(localConn, clt).(*session)
 	ss.SetAttribute(sessionClientKey, clt)
 	ss.SetAttribute(ignoreReconnectKey, false)
 
-	ss.run()
-	_, err = serverConn.Write([]byte("x"))
-	assert.Nil(t, err)
+	ss.stop()
 	select {
 	case <-builder.entered:
 	case <-time.After(time.Second):
-		t.Fatal("session error did not trigger reconnect")
+		t.Fatal("session-triggered reconnect did not start")
 	}
 
 	closeDone := make(chan struct{})
@@ -357,15 +243,73 @@ func TestSessionErrorReconnectInterleavesWithClose(t *testing.T) {
 	}()
 	select {
 	case <-closeDone:
-		t.Fatal("Close returned while session error reconnect was still running")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Close blocked on the session-triggered reconnect worker")
 	}
-
 	release()
 	select {
-	case <-closeDone:
+	case <-builder.exited:
 	case <-time.After(time.Second):
-		t.Fatal("Close did not return after session error reconnect completed")
+		t.Fatal("session-triggered reconnect did not leave the blocked point after release")
+	}
+}
+
+func TestNewSessionCallbackCloseDoesNotDeadlock(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	assert.Nil(t, err)
+	assert.NotNil(t, listener)
+	accepted := make(chan struct{}, 1)
+	acceptDone := make(chan struct{})
+	go func() {
+		defer close(acceptDone)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			select {
+			case accepted <- struct{}{}:
+			default:
+			}
+			_ = conn.Close()
+		}
+	}()
+	defer func() {
+		_ = listener.Close()
+		<-acceptDone
+	}()
+
+	clt := newClient(
+		TCP_CLIENT,
+		WithServerAddress(listener.Addr().String()),
+		WithConnectionNumber(1),
+		WithReconnectInterval(int(time.Millisecond)),
+		WithReconnectAttempts(1),
+	)
+	callbackEntered := make(chan struct{})
+	runDone := make(chan struct{})
+	go func() {
+		clt.RunEventLoop(func(Session) error {
+			close(callbackEntered)
+			clt.Close()
+			return errors.New("reject session and stop client")
+		})
+		close(runDone)
+	}()
+	select {
+	case <-accepted:
+	case <-time.After(time.Second):
+		t.Fatal("listener did not accept the client connection")
+	}
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("NewSessionCallback did not run")
+	}
+	select {
+	case <-runDone:
+	case <-time.After(time.Second):
+		t.Fatal("RunEventLoop did not return after Close from NewSessionCallback")
 	}
 }
 

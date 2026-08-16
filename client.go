@@ -76,7 +76,6 @@ type client struct {
 
 	sync.Once
 	done chan struct{}
-	wg   sync.WaitGroup
 }
 
 func (c *client) init(opts ...ClientOption) {
@@ -428,12 +427,10 @@ func (c *client) runReconnect() <-chan struct{} {
 		close(done)
 		return done
 	default:
-		c.wg.Add(1)
 	}
 	c.Unlock()
 
 	go func() {
-		defer c.wg.Done()
 		defer close(done)
 		c.reConnect()
 	}()
@@ -510,5 +507,4 @@ func (c *client) IsClosed() bool {
 
 func (c *client) Close() {
 	c.stop()
-	c.wg.Wait()
 }

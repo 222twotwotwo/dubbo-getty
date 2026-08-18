@@ -74,6 +74,9 @@ type client struct {
 	newSession NewSessionCallback
 	ssMap      map[Session]struct{}
 
+	reconnectDone    chan struct{}
+	reconnectPending bool
+
 	sync.Once
 	done chan struct{}
 }
@@ -428,11 +431,40 @@ func (c *client) runReconnect() <-chan struct{} {
 		return done
 	default:
 	}
+
+	if c.reconnectDone != nil {
+		c.reconnectPending = true
+		done = c.reconnectDone
+		c.Unlock()
+		return done
+	}
+
+	c.reconnectDone = done
+	c.reconnectPending = true
 	c.Unlock()
 
 	go func() {
 		defer close(done)
-		c.reConnect()
+		for {
+			c.Lock()
+			select {
+			case <-c.done:
+				c.reconnectDone = nil
+				c.reconnectPending = false
+				c.Unlock()
+				return
+			default:
+			}
+			if !c.reconnectPending {
+				c.reconnectDone = nil
+				c.Unlock()
+				return
+			}
+			c.reconnectPending = false
+			c.Unlock()
+
+			c.reConnect()
+		}
 	}()
 	return done
 }

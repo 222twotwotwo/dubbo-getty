@@ -16,9 +16,4 @@ labels: kind/bug
 
 **How to reproduce it (as minimally and precisely as possible)**:
 
-**Environment**:
-- Getty version/commit:
-- Go version (`go version`):
-- Operating system and architecture:
-
 **Anything else we need to know?**:

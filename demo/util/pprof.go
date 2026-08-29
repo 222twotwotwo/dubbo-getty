@@ -19,12 +19,15 @@ package util
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
 )
 
 func Profiling(port int) {
 	go func() {
-		_ = http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil); err != nil {
+			log.Printf("pprof server stopped: %v", err)
+		}
 	}()
 }

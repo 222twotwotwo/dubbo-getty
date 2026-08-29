@@ -74,9 +74,11 @@ type client struct {
 	newSession NewSessionCallback
 	ssMap      map[Session]struct{}
 
+	reconnectDone    chan struct{}
+	reconnectPending bool
+
 	sync.Once
 	done chan struct{}
-	wg   sync.WaitGroup
 }
 
 func (c *client) init(opts ...ClientOption) {
@@ -416,7 +418,55 @@ func (c *client) RunEventLoop(newSession NewSessionCallback) {
 	c.Lock()
 	c.newSession = newSession
 	c.Unlock()
-	c.reConnect()
+	<-c.runReconnect()
+}
+
+func (c *client) runReconnect() <-chan struct{} {
+	done := make(chan struct{})
+	c.Lock()
+	select {
+	case <-c.done:
+		c.Unlock()
+		close(done)
+		return done
+	default:
+	}
+
+	if c.reconnectDone != nil {
+		c.reconnectPending = true
+		done = c.reconnectDone
+		c.Unlock()
+		return done
+	}
+
+	c.reconnectDone = done
+	c.reconnectPending = true
+	c.Unlock()
+
+	go func() {
+		defer close(done)
+		for {
+			c.Lock()
+			select {
+			case <-c.done:
+				c.reconnectDone = nil
+				c.reconnectPending = false
+				c.Unlock()
+				return
+			default:
+			}
+			if !c.reconnectPending {
+				c.reconnectDone = nil
+				c.Unlock()
+				return
+			}
+			c.reconnectPending = false
+			c.Unlock()
+
+			c.reConnect()
+		}
+	}()
+	return done
 }
 
 // a for-loop connect to make sure the connection pool is valid
@@ -463,23 +513,19 @@ func (c *client) reConnect() {
 }
 
 func (c *client) stop() {
-	select {
-	case <-c.done:
-		return
-	default:
-		c.Do(func() {
-			close(c.done)
-			c.Lock()
-			for s := range c.ssMap {
-				s.RemoveAttribute(sessionClientKey)
-				s.RemoveAttribute(ignoreReconnectKey)
-				s.Close()
-			}
-			c.ssMap = nil
+	c.Do(func() {
+		c.Lock()
+		close(c.done)
+		sessions := c.ssMap
+		c.ssMap = nil
+		c.Unlock()
 
-			c.Unlock()
-		})
-	}
+		for s := range sessions {
+			s.RemoveAttribute(sessionClientKey)
+			s.RemoveAttribute(ignoreReconnectKey)
+			s.Close()
+		}
+	})
 }
 
 func (c *client) IsClosed() bool {
@@ -493,5 +539,4 @@ func (c *client) IsClosed() bool {
 
 func (c *client) Close() {
 	c.stop()
-	c.wg.Wait()
 }
